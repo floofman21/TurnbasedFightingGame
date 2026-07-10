@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dragon Ball Z Tournament</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="stars"></div>
+
+  <main id="game">
+
+    <!-- TITLE -->
+    <section id="title" class="screen active">
+      <div class="title-inner">
+        <h1 class="logo">
+          <span class="logo-top">DRAGON BALL Z</span>
+          <span class="logo-bottom">TOURNAMENT</span>
+        </h1>
+        <p class="tagline">Climb the Namek ladder. Collect all seven Dragon Balls. Become champion.</p>
+        <button id="start-btn" class="big-btn">Enter the Tournament</button>
+        <p class="credits">A turn-based prototype • dependency-free • plays in any browser</p>
+      </div>
+    </section>
+
+    <!-- CHARACTER SELECT -->
+    <section id="select" class="screen">
+      <header class="topbar">
+        <button id="back-title" class="link-btn">&larr; Title</button>
+        <h2>Choose Your Fighter</h2>
+        <span></span>
+      </header>
+      <div id="roster" class="roster"></div>
+      <p id="unlock-hint" class="unlock-hint"></p>
+    </section>
+
+    <!-- BATTLE -->
+    <section id="battle" class="screen">
+      <div class="battle-hud">
+        <span id="round-label"></span>
+        <div id="dragonballs" class="dragonballs"></div>
+      </div>
+
+      <div id="arena" class="arena">
+        <div id="player" class="fighter-panel side-player"></div>
+        <div class="vs-badge">VS</div>
+        <div id="enemy" class="fighter-panel side-enemy"></div>
+      </div>
+
+      <div id="controls" class="controls"></div>
+      <div id="battle-log" class="battle-log"></div>
+      <p class="hint">Keys 1–5 also trigger moves. Power Up leaves you exposed — time it well.</p>
+    </section>
+
+    <!-- INTERLUDE (between rounds) -->
+    <section id="interlude" class="screen center"></section>
+
+    <!-- RESULT -->
+    <section id="result" class="screen center"></section>
+
+  </main>
+
+  <script src="js/characters.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>
