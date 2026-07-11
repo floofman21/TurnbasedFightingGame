@@ -1,13 +1,16 @@
 /* ============================================================
  * DBZ Tournament — Combat Engine & Game Flow
  * ------------------------------------------------------------
- * Turn-based combat with a light rock-paper-scissors layer:
+ * 4-Quadrant arena: fighters move between zones each round.
+ * Turn flow: pick move → pick zone to move to → pick zone to
+ * aim at. Both fighters act simultaneously — you must predict
+ * where the enemy will dodge when choosing your aim.
+ *
+ * Rock-paper-scissors layer:
  *   - Melee / Ki Blast deal damage.
- *   - Power Up restores ki but leaves you EXPOSED (next hit +50%).
- *   - Guard halves the next incoming hit.
+ *   - Power Up restores ki but leaves you EXPOSED next round.
+ *   - Guard halves incoming hits and restores a little ki.
  *   - Specials are big-ki ultimates; some pierce guard.
- * Whoever has higher Speed acts first each round. The player
- * climbs a 7-fighter Namek ladder, earning a Dragon Ball per win.
  * ==========================================================*/
 
 (function () {
@@ -15,70 +18,67 @@
 
   const SAVE_KEY = "dbzt_save_v1";
 
+  // Quadrant IDs and display labels
+  const QUADS = ["tl", "tr", "bl", "br"];
+  const QUAD_LABELS = {
+    tl: "Upper Left",
+    tr: "Upper Right",
+    bl: "Lower Left",
+    br: "Lower Right",
+  };
+
   // ---- Persistent progress (unlocks) -----------------------
   const Save = {
     load() {
-      try {
-        return JSON.parse(localStorage.getItem(SAVE_KEY)) || {};
-      } catch (_) {
-        return {};
-      }
+      try { return JSON.parse(localStorage.getItem(SAVE_KEY)) || {}; }
+      catch (_) { return {}; }
     },
     write(data) {
-      try {
-        localStorage.setItem(SAVE_KEY, JSON.stringify(data));
-      } catch (_) {}
+      try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); }
+      catch (_) {}
     },
-    get friezaUnlocked() {
-      return !!this.load().friezaUnlocked;
-    },
-    unlockFrieza() {
-      const d = this.load();
-      d.friezaUnlocked = true;
-      this.write(d);
-    },
-    get clears() {
-      return this.load().clears || 0;
-    },
-    addClear() {
-      const d = this.load();
-      d.clears = (d.clears || 0) + 1;
-      this.write(d);
-    },
+    get friezaUnlocked() { return !!this.load().friezaUnlocked; },
+    unlockFrieza() { const d = this.load(); d.friezaUnlocked = true; this.write(d); },
+    get clears() { return this.load().clears || 0; },
+    addClear() { const d = this.load(); d.clears = (d.clears || 0) + 1; this.write(d); },
   };
 
   // ---- Central game state ----------------------------------
   const G = {
     screen: "title",
     playerId: null,
-    rung: 0, // index into TOURNAMENT_LADDER
+    rung: 0,
     dragonBalls: 0,
-    player: null, // live combatant
-    enemy: null, // live combatant
-    busy: false, // input lock during animations/AI
+    player: null,
+    enemy: null,
+    busy: false,
     log: [],
+    // Quadrant positions
+    playerPos: "bl",
+    enemyPos: "tr",
+    // Turn state
+    pendingMove: null,
+    pendingPlayerPos: null,
+    pendingAimPos: null,
   };
 
-  // A "combatant" wraps a fighter definition with live battle stats.
   function makeCombatant(fighterId, diff = 1) {
     const f = FIGHTERS[fighterId];
-    const scale = diff;
     return {
       id: f.id,
       name: f.name,
       title: f.title,
       color: f.color,
       aura: f.aura,
-      maxHp: Math.round(f.hp * scale),
-      hp: Math.round(f.hp * scale),
+      maxHp: Math.round(f.hp * diff),
+      hp: Math.round(f.hp * diff),
       ki: 0,
       maxKi: 100,
-      atk: f.atk * scale,
-      def: f.def * scale,
+      atk: f.atk * diff,
+      def: f.def * diff,
       speed: f.speed,
       kiRegen: f.kiRegen,
       special: f.special,
-      // transient flags cleared each of the combatant's turns
       guarding: false,
       exposed: false,
     };
@@ -132,7 +132,6 @@
       grid.appendChild(card);
     });
 
-    // Unlock hint
     const hint = $("#unlock-hint");
     if (Save.friezaUnlocked) {
       hint.textContent = "Frieza is unlocked. The tyrant fights for you now.";
@@ -156,31 +155,25 @@
     beginBattle();
   }
 
-  function currentOpponent() {
-    return TOURNAMENT_LADDER[G.rung];
-  }
+  function currentOpponent() { return TOURNAMENT_LADDER[G.rung]; }
 
   function beginBattle() {
     const opp = currentOpponent();
     G.player = makeCombatant(G.playerId, 1);
     G.enemy = makeCombatant(opp.id, opp.diff);
-    // Player starts with a little ki so specials feel reachable.
     G.player.ki = 25;
     G.log = [];
+    G.playerPos = "bl";
+    G.enemyPos = "tr";
+    G.pendingMove = null;
+    G.pendingPlayerPos = null;
+    G.pendingAimPos = null;
     show("battle");
     renderBattle(true);
     logMsg(`Round ${G.rung + 1} of 7 — ${G.player.name} vs ${G.enemy.name}!`, "sys");
-    logMsg(faster().name + " is faster and will strike first.", "sys");
-    setControlsEnabled(true);
+    logMsg(`Both fighters take their positions. Choose your move and aim wisely!`, "sys");
     G.busy = false;
-    // If enemy is faster, they open the round.
-    if (faster() === G.enemy) {
-      lockAndEnemyTurn();
-    }
-  }
-
-  function faster() {
-    return G.player.speed >= G.enemy.speed ? G.player : G.enemy;
+    setControlsEnabled(true);
   }
 
   // =========================================================
@@ -195,6 +188,7 @@
       buildControls();
     }
     updateBars();
+    renderArenaGrid();
   }
 
   function renderBalls() {
@@ -207,6 +201,7 @@
     }
   }
 
+  // Fighter stat panel — nameplate + HP/Ki bars only (avatar lives in the quad grid)
   function buildFighterPanel(side, c) {
     const panel = $("#" + side);
     panel.style.setProperty("--c", c.color);
@@ -219,12 +214,63 @@
       <div class="bars">
         <div class="bar hp"><label>HP</label><i><b></b></i><em></em></div>
         <div class="bar ki"><label>KI</label><i><b></b></i><em></em></div>
-      </div>
-      <div class="avatar" id="${side}-avatar">
-        <span class="aura"></span>
-        <span class="body">${c.name}</span>
-        <span class="fx" id="${side}-fx"></span>
       </div>`;
+  }
+
+  // Build an avatar element to place inside a quadrant cell
+  function buildAvatar(c, side) {
+    const div = document.createElement("div");
+    div.className = "avatar " + side + "-avatar";
+    div.style.setProperty("--c", c.color);
+    div.style.setProperty("--a", c.aura);
+    if (c.ki >= c.special.kiCost) div.classList.add("charged");
+    if (c.guarding) div.classList.add("guarding");
+    // Short name (first word) fits the small circle
+    const shortName = c.name.split(" ")[0];
+    div.innerHTML = `<span class="aura"></span><span class="body">${shortName}</span><span class="fx"></span>`;
+    return div;
+  }
+
+  // Render fighters in their current quadrant cells
+  // mode: undefined = normal, "pos" = player picking move zone, "aim" = player picking aim zone
+  function renderArenaGrid(mode) {
+    QUADS.forEach((q) => {
+      const cell = document.getElementById("q-" + q);
+
+      // Clear dynamic children, keep .quad-label
+      Array.from(cell.children).forEach((ch) => {
+        if (!ch.classList.contains("quad-label")) ch.remove();
+      });
+
+      const hasPlayer = G.playerPos === q;
+      const hasEnemy  = G.enemyPos === q;
+
+      // Place avatars
+      if (hasPlayer) cell.appendChild(buildAvatar(G.player, "player"));
+      if (hasEnemy)  cell.appendChild(buildAvatar(G.enemy, "enemy"));
+
+      // Reset classes then apply state
+      cell.className = "quad";
+      cell.onclick = null;
+
+      if (hasPlayer && hasEnemy) cell.classList.add("has-both");
+      else if (hasPlayer) cell.classList.add("has-player");
+      else if (hasEnemy)  cell.classList.add("has-enemy");
+
+      if (mode === "pos") {
+        cell.classList.add("sel-pos");
+        cell.onclick = () => onPositionPick(q);
+      } else if (mode === "aim") {
+        if (G.pendingPlayerPos === q) {
+          cell.classList.add("pending-pos");
+        } else {
+          cell.classList.add("sel-aim");
+          cell.onclick = () => onAimPick(q);
+        }
+        // Show "enemy here" hint on enemy's current cell
+        if (hasEnemy) cell.classList.add("aim-enemy-here");
+      }
+    });
   }
 
   function updateBars() {
@@ -237,9 +283,6 @@
       panel.querySelector(".ki b").style.width = kiPct + "%";
       panel.querySelector(".hp em").textContent = Math.max(0, Math.round(c.hp)) + "/" + c.maxHp;
       panel.querySelector(".ki em").textContent = Math.round(c.ki) + "/" + c.maxKi;
-      const av = panel.querySelector(".avatar");
-      av.classList.toggle("guarding", c.guarding);
-      av.classList.toggle("charged", c.ki >= c.special.kiCost);
     });
   }
 
@@ -281,105 +324,205 @@
     return BASE_MOVES[id];
   }
 
+  function showPickPrompt(html) {
+    const p = $("#pick-prompt");
+    p.innerHTML = html;
+    p.classList.remove("hidden");
+  }
+
+  function hidePickPrompt() {
+    $("#pick-prompt").classList.add("hidden");
+  }
+
   // =========================================================
-  //  TURN RESOLUTION
+  //  PLAYER TURN — 3-STEP SELECTION
   // =========================================================
+
+  // Step 1: move selected → show position picker
   function onPlayerMove(move) {
     if (G.busy) return;
     if (G.player.ki < (move.kiCost || 0)) return;
-    G.busy = true;
+    G.pendingMove = move;
     setControlsEnabled(false);
-    performTurn(G.player, G.enemy, move, "player", () => {
-      if (isDead(G.enemy)) return onBattleWon();
-      // Enemy responds after a beat.
-      setTimeout(lockAndEnemyTurn, 620);
-    });
+    showPickPrompt(
+      `<b>${move.name}</b> selected — <span style="color:#80e0ff">which zone will you move to?</span>`
+    );
+    renderArenaGrid("pos");
   }
 
-  function lockAndEnemyTurn() {
-    G.busy = true;
-    setControlsEnabled(false);
-    const move = chooseEnemyMove();
-    // brief "thinking" beat
-    setTimeout(() => {
-      performTurn(G.enemy, G.player, move, "enemy", () => {
-        if (isDead(G.player)) return onBattleLost();
-        G.busy = false;
-        setControlsEnabled(true);
-      });
-    }, 520);
+  // Step 2: position chosen → show aim picker (or execute if non-attack move)
+  function onPositionPick(pos) {
+    G.pendingPlayerPos = pos;
+    const move = G.pendingMove;
+
+    if (move.type === "charge" || move.type === "guard") {
+      // No attack — execute immediately
+      G.pendingAimPos = null;
+      hidePickPrompt();
+      executeRound();
+      return;
+    }
+
+    const enemyZone = QUAD_LABELS[G.enemyPos];
+    showPickPrompt(
+      `<b>${move.name}</b> — <span style="color:var(--gold)">aim at which zone?</span>`
+      + ` <small style="color:#ff8090">(enemy last seen: ${enemyZone})</small>`
+    );
+    renderArenaGrid("aim");
   }
 
-  // Apply a move from attacker to defender, then run visual FX and cb.
-  function performTurn(attacker, defender, move, side, cb) {
-    // Regen a trickle of ki at the top of one's own turn.
-    attacker.ki = clamp(attacker.ki + attacker.kiRegen, 0, attacker.maxKi);
+  // Step 3: aim chosen → execute round
+  function onAimPick(aimPos) {
+    G.pendingAimPos = aimPos;
+    hidePickPrompt();
+    executeRound();
+  }
 
-    // Clear attacker's own transient guard as they commit to an action
-    // (guarding only protects until you next act).
-    const wasGuarding = attacker.guarding;
-    attacker.guarding = false;
+  // =========================================================
+  //  SIMULTANEOUS ROUND RESOLUTION
+  // =========================================================
+  function executeRound() {
+    G.busy = true;
 
-    let result = { dmg: 0, text: "", crit: false, fx: "hit" };
+    const pm  = G.pendingMove;
+    const pPos = G.pendingPlayerPos;
+    const pAim = G.pendingAimPos; // null for charge/guard
 
-    switch (move.type) {
-      case "charge":
-        attacker.ki = clamp(attacker.ki + move.kiGain, 0, attacker.maxKi);
-        attacker.exposed = true; // dropped guard — punished if hit next
-        result.text = `${attacker.name} powers up! Ki surges — but their guard is down.`;
-        result.fx = "charge";
-        break;
+    // ---- Enemy AI chooses before positions update ----
+    const em   = chooseEnemyMove();
+    const ePos = chooseEnemyPosition();
+    const eAim = (em.type === "charge" || em.type === "guard") ? null : chooseEnemyAim();
 
-      case "guard":
-        attacker.guarding = true;
-        attacker.ki = clamp(attacker.ki + move.kiGain, 0, attacker.maxKi);
-        result.text = `${attacker.name} braces for impact.`;
-        result.fx = "guard";
-        break;
+    // ---- Both fighters move simultaneously ----
+    G.playerPos = pPos;
+    G.enemyPos  = ePos;
 
-      default: {
-        // damaging move (melee / ki / special)
-        if (move.kiCost) attacker.ki = clamp(attacker.ki - move.kiCost, 0, attacker.maxKi);
-        result = computeDamage(attacker, defender, move);
-        defender.hp = clamp(defender.hp - result.dmg, 0, defender.maxHp);
-        // recoil specials (Tri-Beam)
-        if (move.recoil) {
-          attacker.hp = clamp(attacker.hp - move.recoil, 0, attacker.maxHp);
-          result.text += ` The strain costs ${attacker.name} ${move.recoil} HP.`;
+    // ---- Ki regen for both ----
+    G.player.ki = clamp(G.player.ki + G.player.kiRegen, 0, G.player.maxKi);
+    G.enemy.ki  = clamp(G.enemy.ki  + G.enemy.kiRegen,  0, G.enemy.maxKi);
+
+    // ---- Save PREVIOUS exposed state (for damage calc) ----
+    // exposed carries over until you act; the ACT that clears it
+    // and the incoming hit that checks it happen in the same round.
+    const playerWasExposed = G.player.exposed;
+    const enemyWasExposed  = G.enemy.exposed;
+
+    // ---- Apply this round's guard / charge / ki effects ----
+    G.player.guarding = (pm.type === "guard");
+    G.enemy.guarding  = (em.type === "guard");
+
+    if (pm.type === "guard")  G.player.ki = clamp(G.player.ki + pm.kiGain, 0, G.player.maxKi);
+    if (em.type === "guard")  G.enemy.ki  = clamp(G.enemy.ki  + em.kiGain,  0, G.enemy.maxKi);
+    if (pm.type === "charge") { G.player.ki = clamp(G.player.ki + pm.kiGain, 0, G.player.maxKi); }
+    if (em.type === "charge") { G.enemy.ki  = clamp(G.enemy.ki  + em.kiGain,  0, G.enemy.maxKi); }
+    if (pm.kiCost) G.player.ki = clamp(G.player.ki - pm.kiCost, 0, G.player.maxKi);
+    if (em.kiCost) G.enemy.ki  = clamp(G.enemy.ki  - em.kiCost,  0, G.enemy.maxKi);
+
+    // ---- Temporarily restore previous exposed for damage calc ----
+    G.player.exposed = playerWasExposed;
+    G.enemy.exposed  = enemyWasExposed;
+
+    // ---- Resolve player action ----
+    let pDmg = 0, pText = "", pFx = "none", pCrit = false;
+
+    if (pm.type === "charge") {
+      pText = `${G.player.name} powers up in ${QUAD_LABELS[pPos]}! Ki surges — guard is down.`;
+      pFx = "charge";
+    } else if (pm.type === "guard") {
+      pText = `${G.player.name} moves to ${QUAD_LABELS[pPos]} and braces for impact.`;
+      pFx = "guard";
+    } else {
+      if (pAim === ePos) {
+        const res = computeDamage(G.player, G.enemy, pm);
+        pDmg = res.dmg;
+        pCrit = res.crit;
+        pFx   = res.fx;
+        pText = `${G.player.name} strikes ${QUAD_LABELS[pAim]}! ` + res.text;
+        if (pm.recoil) {
+          G.player.hp = clamp(G.player.hp - pm.recoil, 0, G.player.maxHp);
+          pText += ` Strain costs ${pm.recoil} HP.`;
         }
-        break;
+      } else {
+        pText = `${G.player.name} fires at ${QUAD_LABELS[pAim]} — but ${G.enemy.name} moved to ${QUAD_LABELS[ePos]}! MISS!`;
+        pFx = "miss";
       }
     }
 
-    // Attacker acting clears their exposed flag AFTER this resolves next turn;
-    // exposed only matters while it's set when THEY get hit, so clear on their action.
-    if (move.type !== "charge") attacker.exposed = false;
+    // ---- Resolve enemy action ----
+    let eDmg = 0, eText = "", eFx = "none", eCrit = false;
 
-    logMsg(result.text, side);
-    playFX(side, defender === G.player ? "player" : "enemy", move, result);
+    if (em.type === "charge") {
+      eText = `${G.enemy.name} powers up in ${QUAD_LABELS[ePos]}! They're exposed.`;
+      eFx = "charge";
+    } else if (em.type === "guard") {
+      eText = `${G.enemy.name} moves to ${QUAD_LABELS[ePos]} and guards.`;
+      eFx = "guard";
+    } else {
+      if (eAim === pPos) {
+        const res = computeDamage(G.enemy, G.player, em);
+        eDmg = res.dmg;
+        eCrit = res.crit;
+        eFx   = res.fx;
+        eText = `${G.enemy.name} strikes ${QUAD_LABELS[eAim]}! ` + res.text;
+        if (em.recoil) {
+          G.enemy.hp = clamp(G.enemy.hp - em.recoil, 0, G.enemy.maxHp);
+          eText += ` Strain costs ${em.recoil} HP.`;
+        }
+      } else {
+        eText = `${G.enemy.name} fires at ${QUAD_LABELS[eAim]} — you dodged to ${QUAD_LABELS[pPos]}! MISS!`;
+        eFx = "miss";
+      }
+    }
+
+    // ---- Apply damage ----
+    G.enemy.hp  = clamp(G.enemy.hp  - pDmg, 0, G.enemy.maxHp);
+    G.player.hp = clamp(G.player.hp - eDmg, 0, G.player.maxHp);
+
+    // ---- Update exposed for NEXT round ----
+    G.player.exposed = (pm.type === "charge");
+    G.enemy.exposed  = (em.type === "charge");
+
+    // ---- Log ----
+    logMsg(pText, "player");
+    logMsg(eText, "enemy");
+
+    // ---- Visual FX ----
+    if (pDmg > 0) playFX("player-avatar", "enemy-avatar", pm, { dmg: pDmg, crit: pCrit, fx: pFx });
+    if (eDmg > 0) playFX("enemy-avatar",  "player-avatar", em, { dmg: eDmg, crit: eCrit, fx: eFx });
+
     updateBars();
-    setTimeout(cb, 560);
+    renderArenaGrid();
+
+    // ---- Check win/lose ----
+    setTimeout(() => {
+      if (isDead(G.enemy))  return onBattleWon();
+      if (isDead(G.player)) return onBattleLost();
+      G.busy = false;
+      G.pendingMove = null;
+      G.pendingPlayerPos = null;
+      G.pendingAimPos = null;
+      setControlsEnabled(true);
+    }, 800);
   }
 
+  // =========================================================
+  //  DAMAGE CALCULATION
+  // =========================================================
   function computeDamage(attacker, defender, move) {
-    // Base scaled by attacker ATK vs defender DEF.
     const atkFactor = attacker.atk / 20;
     const defFactor = move.pierce ? 1 : 20 / (20 + defender.def);
     let dmg = move.power * atkFactor * defFactor;
 
-    // Guard halves non-piercing hits.
     let guarded = false;
     if (defender.guarding && !move.pierce) {
       dmg *= 0.45;
       guarded = true;
     }
-    // Exposed (just charged) defenders eat +50%.
     let punished = false;
     if (defender.exposed) {
       dmg *= 1.5;
       punished = true;
     }
-    // Variance + crits.
     const crit = rand() < 0.14;
     dmg *= 0.9 + rand() * 0.2;
     if (crit) dmg *= 1.6;
@@ -387,8 +530,8 @@
     dmg = Math.max(1, Math.round(dmg));
 
     let text = `${attacker.name} uses ${move.name} for ${dmg} damage.`;
-    if (crit) text = `⚡ CRITICAL! ` + text;
-    if (guarded) text += ` ${defender.name}'s guard softens the blow.`;
+    if (crit)     text = `⚡ CRITICAL! ` + text;
+    if (guarded)  text += ` ${defender.name}'s guard softens the blow.`;
     if (punished) text += ` ${defender.name} was wide open!`;
     if (move.pierce) text += ` It pierces straight through!`;
 
@@ -396,29 +539,40 @@
   }
 
   // =========================================================
-  //  ENEMY AI — simple but reactive
+  //  ENEMY AI
   // =========================================================
   function chooseEnemyMove() {
     const e = G.enemy;
     const p = G.player;
     const hpRatio = e.hp / e.maxHp;
 
-    // Finish if a special would likely end it.
     if (e.ki >= e.special.kiCost) {
       const est = estimate(e, p, e.special);
       if (est >= p.hp || rand() < 0.55) return e.special;
     }
-    // Punish an exposed player hard.
     if (p.exposed && e.ki >= BASE_MOVES.kiBlast.kiCost) return BASE_MOVES.kiBlast;
-    // Low ki? charge up, unless dangerously low HP (then guard/attack).
     if (e.ki < BASE_MOVES.kiBlast.kiCost) {
       if (hpRatio < 0.25 && rand() < 0.5) return BASE_MOVES.guard;
       return rand() < 0.7 ? BASE_MOVES.charge : BASE_MOVES.melee;
     }
-    // Otherwise mix melee / ki, occasionally guard when hurt.
     if (hpRatio < 0.35 && rand() < 0.3) return BASE_MOVES.guard;
     if (e.ki >= BASE_MOVES.kiBlast.kiCost && rand() < 0.5) return BASE_MOVES.kiBlast;
     return BASE_MOVES.melee;
+  }
+
+  // Enemy picks a zone to move to (tries to dodge the player's predicted aim)
+  function chooseEnemyPosition() {
+    // 40% stay put, 60% move to a random different zone
+    if (rand() < 0.40) return G.enemyPos;
+    const others = QUADS.filter((q) => q !== G.enemyPos);
+    return others[Math.floor(rand() * others.length)];
+  }
+
+  // Enemy aims at player's current zone (65%) or a random zone (35%)
+  // — the enemy predicts the player won't move, so moving is a valid dodge strategy
+  function chooseEnemyAim() {
+    if (rand() < 0.65) return G.playerPos;
+    return QUADS[Math.floor(rand() * QUADS.length)];
   }
 
   function estimate(attacker, defender, move) {
@@ -480,7 +634,9 @@
 
   function miniBalls() {
     let s = "";
-    for (let i = 0; i < 7; i++) s += `<span class="dball sm${i < G.dragonBalls ? " got" : ""}">${i < G.dragonBalls ? i + 1 : ""}</span>`;
+    for (let i = 0; i < 7; i++) {
+      s += `<span class="dball sm${i < G.dragonBalls ? " got" : ""}">${i < G.dragonBalls ? i + 1 : ""}</span>`;
+    }
     return s;
   }
 
@@ -488,7 +644,6 @@
     Save.addClear();
     const firstClear = !Save.friezaUnlocked;
     if (firstClear) Save.unlockFrieza();
-    show("result");
     showResult(true, firstClear);
   }
 
@@ -513,7 +668,7 @@
         <div class="card lose-card">
           <h1>DEFEATED</h1>
           <p>You made it to Round ${G.rung + 1} and collected ${G.dragonBalls} Dragon Ball${G.dragonBalls === 1 ? "" : "s"}.</p>
-          <p class="tip">Tip: bait a Power Up out of your foe, then punish while they're exposed.</p>
+          <p class="tip">Tip: move to a different zone after Power Up so the enemy misses you!</p>
           <div class="btn-row">
             <button class="big-btn" id="again-btn">Try Again</button>
             <button class="big-btn ghost" id="menu-btn">Character Select</button>
@@ -521,10 +676,7 @@
         </div>`;
     }
     $("#again-btn").addEventListener("click", () => startTournament(G.playerId));
-    $("#menu-btn").addEventListener("click", () => {
-      renderSelect();
-      show("select");
-    });
+    $("#menu-btn").addEventListener("click", () => { renderSelect(); show("select"); });
   }
 
   // =========================================================
@@ -537,37 +689,37 @@
     const line = el("div", "log-line " + (kind || ""), text);
     box.appendChild(line);
     box.scrollTop = box.scrollHeight;
-    // keep DOM light
     while (box.children.length > 40) box.removeChild(box.firstChild);
   }
 
-  function playFX(attackerSide, defenderSide, move, result) {
+  // attackerClass / defenderClass are CSS class names like "player-avatar" / "enemy-avatar"
+  function playFX(attackerClass, defenderClass, move, result) {
     const arena = $("#arena");
     if (result.dmg > 0) {
       arena.classList.remove("shake", "shake-hard");
-      void arena.offsetWidth; // restart animation
+      void arena.offsetWidth;
       arena.classList.add(result.crit ? "shake-hard" : "shake");
-      // floating damage number over defender
-      const av = $("#" + defenderSide + "-avatar");
-      if (av) {
+
+      const defAv = document.querySelector("." + defenderClass);
+      if (defAv) {
         const dn = el("span", "dmg-float" + (result.crit ? " crit" : ""), "-" + result.dmg);
-        av.appendChild(dn);
+        defAv.appendChild(dn);
         setTimeout(() => dn.remove(), 900);
-        av.classList.remove("hurt");
-        void av.offsetWidth;
-        av.classList.add("hurt");
+        defAv.classList.remove("hurt");
+        void defAv.offsetWidth;
+        defAv.classList.add("hurt");
       }
     }
-    // attacker action flash
-    const aav = $("#" + attackerSide + "-avatar");
-    if (aav) {
-      aav.classList.remove("act-melee", "act-beam", "act-charge", "act-guard");
-      void aav.offsetWidth;
+
+    const attAv = document.querySelector("." + attackerClass);
+    if (attAv) {
       const cls =
-        result.fx === "beam" ? "act-beam" :
+        result.fx === "beam"   ? "act-beam"   :
         result.fx === "charge" ? "act-charge" :
-        result.fx === "guard" ? "act-guard" : "act-melee";
-      aav.classList.add(cls);
+        result.fx === "guard"  ? "act-guard"  : "act-melee";
+      attAv.classList.remove("act-melee", "act-beam", "act-charge", "act-guard");
+      void attAv.offsetWidth;
+      attAv.classList.add(cls);
     }
   }
 
@@ -582,20 +734,21 @@
   //  BOOT
   // =========================================================
   function boot() {
-    $("#start-btn").addEventListener("click", () => {
-      renderSelect();
-      show("select");
-    });
+    $("#start-btn").addEventListener("click", () => { renderSelect(); show("select"); });
     $("#back-title").addEventListener("click", () => show("title"));
-    // keyboard: number keys during battle
+
+    // Keyboard shortcut: keys 1–5 select a move (then player clicks quads for position/aim)
     document.addEventListener("keydown", (e) => {
       if (G.screen !== "battle" || G.busy) return;
+      // Only allow move selection in the initial phase (not during pos/aim picking)
+      if (G.pendingMove) return;
       const map = { "1": "melee", "2": "kiBlast", "3": "charge", "4": "guard", "5": "__special" };
       const which = map[e.key];
       if (!which) return;
       const m = which === "__special" ? G.player.special : BASE_MOVES[which];
       onPlayerMove(m);
     });
+
     show("title");
   }
 

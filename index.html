@@ -43,14 +43,25 @@
       </div>
 
       <div id="arena" class="arena">
-        <div id="player" class="fighter-panel side-player"></div>
-        <div class="vs-badge">VS</div>
-        <div id="enemy" class="fighter-panel side-enemy"></div>
+        <div class="fighters-hud">
+          <div id="player" class="fighter-panel side-player"></div>
+          <div class="vs-badge">VS</div>
+          <div id="enemy" class="fighter-panel side-enemy"></div>
+        </div>
+
+        <div id="pick-prompt" class="pick-prompt hidden"></div>
+
+        <div id="quad-grid" class="quad-grid">
+          <div class="quad" id="q-tl" data-q="tl"><span class="quad-label">Upper Left</span></div>
+          <div class="quad" id="q-tr" data-q="tr"><span class="quad-label">Upper Right</span></div>
+          <div class="quad" id="q-bl" data-q="bl"><span class="quad-label">Lower Left</span></div>
+          <div class="quad" id="q-br" data-q="br"><span class="quad-label">Lower Right</span></div>
+        </div>
       </div>
 
       <div id="controls" class="controls"></div>
       <div id="battle-log" class="battle-log"></div>
-      <p class="hint">Keys 1–5 also trigger moves. Power Up leaves you exposed — time it well.</p>
+      <p class="hint">Keys 1–5 pick a move → click a zone to move → click a zone to strike!</p>
     </section>
 
     <!-- INTERLUDE (between rounds) -->
