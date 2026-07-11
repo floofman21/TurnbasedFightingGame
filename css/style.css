@@ -387,6 +387,8 @@ html, body {
 @keyframes beam { from { width: 0; opacity: 1; } to { width: 72px; opacity: 0; } }
 .avatar.act-charge { animation: chargeUp 0.5s ease; }
 @keyframes chargeUp { 0%,100%{transform:scale(1)} 50%{transform:scale(1.12)} }
+.avatar.stay-pulse { animation: stayPulse 0.32s ease; }
+@keyframes stayPulse { 0%,100%{transform:scale(1)} 45%{transform:scale(1.1)} }
 
 /* Avatar label under name (player vs enemy) */
 .avatar-tag {

@@ -379,12 +379,87 @@
   }
 
   // =========================================================
+  //  MOVEMENT ANIMATION
+  // =========================================================
+
+  // Fly both avatars from their current quadrants to their destination quadrants,
+  // then call onComplete. Uses fixed-position clones so the transition crosses cells.
+  function animateMovements(pFromPos, pToPos, eFromPos, eToPos, onComplete) {
+    const tasks = [];
+
+    if (pFromPos !== pToPos) {
+      const av = document.querySelector(".player-avatar");
+      if (av) tasks.push({ av, fromQ: pFromPos, toQ: pToPos });
+    }
+    if (eFromPos !== eToPos) {
+      const av = document.querySelector(".enemy-avatar");
+      if (av) tasks.push({ av, fromQ: eFromPos, toQ: eToPos });
+    }
+
+    if (tasks.length === 0) {
+      // No movement — quick shake-in-place pulse on the avatars
+      document.querySelectorAll(".player-avatar, .enemy-avatar").forEach((av) => {
+        av.classList.add("stay-pulse");
+        setTimeout(() => av.classList.remove("stay-pulse"), 350);
+      });
+      setTimeout(onComplete, 200);
+      return;
+    }
+
+    const clones = [];
+
+    tasks.forEach(({ av, fromQ, toQ }) => {
+      const fromRect = av.getBoundingClientRect();
+      const toCell   = document.getElementById("q-" + toQ);
+      const toRect   = toCell.getBoundingClientRect();
+
+      // Target: centred inside the destination cell
+      const toCX = toRect.left + (toRect.width  - fromRect.width)  / 2;
+      const toCY = toRect.top  + (toRect.height - fromRect.height) / 2;
+
+      // Clone and pin at current screen position
+      const clone = av.cloneNode(true);
+      clone.style.cssText = [
+        "position:fixed",
+        `left:${fromRect.left}px`,
+        `top:${fromRect.top}px`,
+        `width:${fromRect.width}px`,
+        `height:${fromRect.height}px`,
+        "margin:0",
+        "z-index:999",
+        "pointer-events:none",
+        "transition:left 0.38s cubic-bezier(0.4,0,0.2,1),top 0.38s cubic-bezier(0.4,0,0.2,1),opacity 0.1s ease 0.32s",
+      ].join(";");
+      document.body.appendChild(clone);
+      clones.push(clone);
+
+      // Hide the real avatar while clone flies
+      av.style.opacity = "0";
+
+      // Kick off the CSS transition on next frame
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          clone.style.left = toCX + "px";
+          clone.style.top  = toCY + "px";
+          clone.style.opacity = "0"; // fade out just before landing
+        });
+      });
+    });
+
+    // After the flight: clean up clones and hand off to the resolve phase
+    setTimeout(() => {
+      clones.forEach((c) => c.remove());
+      onComplete();
+    }, 420);
+  }
+
+  // =========================================================
   //  SIMULTANEOUS ROUND RESOLUTION
   // =========================================================
   function executeRound() {
     G.busy = true;
 
-    const pm  = G.pendingMove;
+    const pm   = G.pendingMove;
     const pPos = G.pendingPlayerPos;
     const pAim = G.pendingAimPos; // null for charge/guard
 
@@ -393,17 +468,11 @@
     const ePos = chooseEnemyPosition();
     const eAim = (em.type === "charge" || em.type === "guard") ? null : chooseEnemyAim();
 
-    // ---- Both fighters move simultaneously ----
-    G.playerPos = pPos;
-    G.enemyPos  = ePos;
-
-    // ---- Ki regen for both ----
+    // ---- Ki regen ----
     G.player.ki = clamp(G.player.ki + G.player.kiRegen, 0, G.player.maxKi);
     G.enemy.ki  = clamp(G.enemy.ki  + G.enemy.kiRegen,  0, G.enemy.maxKi);
 
     // ---- Save PREVIOUS exposed state (for damage calc) ----
-    // exposed carries over until you act; the ACT that clears it
-    // and the incoming hit that checks it happen in the same round.
     const playerWasExposed = G.player.exposed;
     const enemyWasExposed  = G.enemy.exposed;
 
@@ -413,16 +482,16 @@
 
     if (pm.type === "guard")  G.player.ki = clamp(G.player.ki + pm.kiGain, 0, G.player.maxKi);
     if (em.type === "guard")  G.enemy.ki  = clamp(G.enemy.ki  + em.kiGain,  0, G.enemy.maxKi);
-    if (pm.type === "charge") { G.player.ki = clamp(G.player.ki + pm.kiGain, 0, G.player.maxKi); }
-    if (em.type === "charge") { G.enemy.ki  = clamp(G.enemy.ki  + em.kiGain,  0, G.enemy.maxKi); }
+    if (pm.type === "charge") G.player.ki = clamp(G.player.ki + pm.kiGain, 0, G.player.maxKi);
+    if (em.type === "charge") G.enemy.ki  = clamp(G.enemy.ki  + em.kiGain,  0, G.enemy.maxKi);
     if (pm.kiCost) G.player.ki = clamp(G.player.ki - pm.kiCost, 0, G.player.maxKi);
     if (em.kiCost) G.enemy.ki  = clamp(G.enemy.ki  - em.kiCost,  0, G.enemy.maxKi);
 
-    // ---- Temporarily restore previous exposed for damage calc ----
+    // Restore previous exposed so damage calc sees the correct value
     G.player.exposed = playerWasExposed;
     G.enemy.exposed  = enemyWasExposed;
 
-    // ---- Resolve player action ----
+    // ---- Pre-compute combat outcomes ----
     let pDmg = 0, pText = "", pFx = "none", pCrit = false;
 
     if (pm.type === "charge") {
@@ -434,9 +503,7 @@
     } else {
       if (pAim === ePos) {
         const res = computeDamage(G.player, G.enemy, pm);
-        pDmg = res.dmg;
-        pCrit = res.crit;
-        pFx   = res.fx;
+        pDmg = res.dmg; pCrit = res.crit; pFx = res.fx;
         pText = `${G.player.name} strikes ${QUAD_LABELS[pAim]}! ` + res.text;
         if (pm.recoil) {
           G.player.hp = clamp(G.player.hp - pm.recoil, 0, G.player.maxHp);
@@ -448,7 +515,6 @@
       }
     }
 
-    // ---- Resolve enemy action ----
     let eDmg = 0, eText = "", eFx = "none", eCrit = false;
 
     if (em.type === "charge") {
@@ -460,9 +526,7 @@
     } else {
       if (eAim === pPos) {
         const res = computeDamage(G.enemy, G.player, em);
-        eDmg = res.dmg;
-        eCrit = res.crit;
-        eFx   = res.fx;
+        eDmg = res.dmg; eCrit = res.crit; eFx = res.fx;
         eText = `${G.enemy.name} strikes ${QUAD_LABELS[eAim]}! ` + res.text;
         if (em.recoil) {
           G.enemy.hp = clamp(G.enemy.hp - em.recoil, 0, G.enemy.maxHp);
@@ -474,35 +538,41 @@
       }
     }
 
-    // ---- Apply damage ----
-    G.enemy.hp  = clamp(G.enemy.hp  - pDmg, 0, G.enemy.maxHp);
-    G.player.hp = clamp(G.player.hp - eDmg, 0, G.player.maxHp);
+    // ---- PHASE 1: Animate both fighters flying to new zones ----
+    const oldPlayerPos = G.playerPos;
+    const oldEnemyPos  = G.enemyPos;
 
-    // ---- Update exposed for NEXT round ----
-    G.player.exposed = (pm.type === "charge");
-    G.enemy.exposed  = (em.type === "charge");
+    animateMovements(oldPlayerPos, pPos, oldEnemyPos, ePos, () => {
+      // ---- PHASE 2: Snap to new positions, apply damage ----
+      G.playerPos = pPos;
+      G.enemyPos  = ePos;
 
-    // ---- Log ----
-    logMsg(pText, "player");
-    logMsg(eText, "enemy");
+      G.enemy.hp  = clamp(G.enemy.hp  - pDmg, 0, G.enemy.maxHp);
+      G.player.hp = clamp(G.player.hp - eDmg, 0, G.player.maxHp);
 
-    // ---- Visual FX ----
-    if (pDmg > 0) playFX("player-avatar", "enemy-avatar", pm, { dmg: pDmg, crit: pCrit, fx: pFx });
-    if (eDmg > 0) playFX("enemy-avatar",  "player-avatar", em, { dmg: eDmg, crit: eCrit, fx: eFx });
+      G.player.exposed = (pm.type === "charge");
+      G.enemy.exposed  = (em.type === "charge");
 
-    updateBars();
-    renderArenaGrid();
+      logMsg(pText, "player");
+      logMsg(eText, "enemy");
 
-    // ---- Check win/lose ----
-    setTimeout(() => {
-      if (isDead(G.enemy))  return onBattleWon();
-      if (isDead(G.player)) return onBattleLost();
-      G.busy = false;
-      G.pendingMove = null;
-      G.pendingPlayerPos = null;
-      G.pendingAimPos = null;
-      setControlsEnabled(true);
-    }, 800);
+      renderArenaGrid();
+      updateBars();
+
+      if (pDmg > 0) playFX("player-avatar", "enemy-avatar", pm, { dmg: pDmg, crit: pCrit, fx: pFx });
+      if (eDmg > 0) playFX("enemy-avatar",  "player-avatar", em, { dmg: eDmg, crit: eCrit, fx: eFx });
+
+      // ---- PHASE 3: Check win/lose ----
+      setTimeout(() => {
+        if (isDead(G.enemy))  return onBattleWon();
+        if (isDead(G.player)) return onBattleLost();
+        G.busy = false;
+        G.pendingMove = null;
+        G.pendingPlayerPos = null;
+        G.pendingAimPos = null;
+        setControlsEnabled(true);
+      }, 700);
+    });
   }
 
   // =========================================================
