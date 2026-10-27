@@ -1,0 +1,163 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* Tailwind v4 is configured in CSS (there is no tailwind.config.ts).
+   Tokens below are copied from the Steady prototype; shadcn variable names
+   (--background, --primary, …) alias them so stock shadcn components match. */
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* Prototype tokens — light */
+  --bg: #f5f6f4;
+  --surface: #ffffff;
+  --sunk: #eef0ed;
+  --fg: #1a201d;
+  --muted: #69736e;
+  --faint: #9aa39e;
+  --line: #e2e6e2;
+  --accent-base: #2f5d50;
+  --accent-soft: #e3eeea;
+  --on-accent: #ffffff;
+  --good: #2e9e5b;
+  --warn: #d49b12;
+  --bad: #cf4536;
+  --good-soft: #e4f4ea;
+  --warn-soft: #fbf1d6;
+  --bad-soft: #fbe6e3;
+  --shadow-card: 0 1px 2px rgba(20, 30, 25, 0.05), 0 1px 1px rgba(20, 30, 25, 0.03);
+  --scrim: rgba(10, 15, 12, 0.35);
+
+  /* shadcn aliases */
+  --radius: 10px;
+  --background: var(--bg);
+  --foreground: var(--fg);
+  --card: var(--surface);
+  --card-foreground: var(--fg);
+  --popover: var(--surface);
+  --popover-foreground: var(--fg);
+  --primary: var(--accent-base);
+  --primary-foreground: var(--on-accent);
+  --secondary: var(--sunk);
+  --secondary-foreground: var(--fg);
+  --muted-bg: var(--sunk);
+  --muted-foreground: var(--muted);
+  --accent: var(--sunk);
+  --accent-foreground: var(--fg);
+  --destructive: var(--bad);
+  --border: var(--line);
+  --input: var(--line);
+  --ring: var(--accent-base);
+  --sidebar: var(--sunk);
+  --sidebar-foreground: var(--fg);
+
+  color-scheme: light;
+}
+
+.dark {
+  /* Prototype tokens — dark */
+  --bg: #111513;
+  --surface: #191e1c;
+  --sunk: #1f2522;
+  --fg: #e7ece9;
+  --muted: #97a39d;
+  --faint: #6e7974;
+  --line: #2a322e;
+  --accent-base: #86c2ad;
+  --accent-soft: #22332d;
+  --on-accent: #0f1a16;
+  --good: #4fc57d;
+  --warn: #e6b73e;
+  --bad: #f06b5c;
+  --good-soft: #1c3326;
+  --warn-soft: #352c14;
+  --bad-soft: #3a1f1c;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3);
+
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted-bg);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+
+  /* Steady-specific */
+  --color-surface: var(--surface);
+  --color-sunk: var(--sunk);
+  --color-faint: var(--faint);
+  --color-brand: var(--accent-base);
+  --color-brand-soft: var(--accent-soft);
+  --color-on-brand: var(--on-accent);
+  --color-good: var(--good);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+  --color-good-soft: var(--good-soft);
+  --color-warn-soft: var(--warn-soft);
+  --color-bad-soft: var(--bad-soft);
+  --color-scrim: var(--scrim);
+
+  --font-display: var(--font-bricolage), "Hanken Grotesk", system-ui, sans-serif;
+  --font-sans: var(--font-hanken), system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: var(--radius);
+  --radius-xl: 12px;
+
+  --shadow-card: var(--shadow-card);
+
+  --breakpoint-nav: 860px;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html,
+  body {
+    height: 100%;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-size: 14px;
+    line-height: 1.45;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+@utility num {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
