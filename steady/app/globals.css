@@ -27,6 +27,12 @@
   --bad-soft: #fbe6e3;
   --shadow-card: 0 1px 2px rgba(20, 30, 25, 0.05), 0 1px 1px rgba(20, 30, 25, 0.03);
   --scrim: rgba(10, 15, 12, 0.35);
+  /* Chart series (categorical, validated for CVD separation on these surfaces).
+     Status colors (good/warn/bad) are reserved for bands, never series identity. */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
 
   /* shadcn aliases */
   --radius: 10px;
@@ -73,6 +79,10 @@
   --warn-soft: #352c14;
   --bad-soft: #3a1f1c;
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
 
   color-scheme: dark;
 }
@@ -113,6 +123,10 @@
   --color-warn-soft: var(--warn-soft);
   --color-bad-soft: var(--bad-soft);
   --color-scrim: var(--scrim);
+  --color-series-1: var(--series-1);
+  --color-series-2: var(--series-2);
+  --color-series-3: var(--series-3);
+  --color-series-4: var(--series-4);
 
   --font-display: var(--font-bricolage), "Hanken Grotesk", system-ui, sans-serif;
   --font-sans: var(--font-hanken), system-ui, -apple-system, "Segoe UI", sans-serif;

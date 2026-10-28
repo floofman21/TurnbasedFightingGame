@@ -5,7 +5,7 @@ import "dotenv/config";
 import { generateSamplePeople, SAMPLE_DEPARTMENTS, SAMPLE_WEEKS } from "./sample-data";
 import { recentWeeks, weekStartOf, addDays } from "../lib/week";
 
-if (process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production") {
+if (process.env.CONTEXT === "production" || process.env.NODE_ENV === "production") {
   console.error("Refusing to seed a production database.");
   process.exit(1);
 }

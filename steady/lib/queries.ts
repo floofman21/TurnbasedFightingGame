@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { computeIndices, isAtRisk } from "@/lib/scoring";
 
@@ -42,4 +42,15 @@ export async function participation(orgId: string, weekStart: string) {
     .leftJoin(checkins, and(eq(checkins.personId, people.id), eq(checkins.weekStart, weekStart)))
     .where(and(eq(people.orgId, orgId), eq(people.active, true)));
   return row;
+}
+
+/** The person's own check-ins for the `weeks` most recent weeks, oldest first. */
+export async function getMyHistory(personId: string, weeks: string[]) {
+  const { checkins } = schema;
+  const rows = await db
+    .select()
+    .from(checkins)
+    .where(and(eq(checkins.personId, personId), inArray(checkins.weekStart, weeks)));
+  const byWeek = new Map(rows.map((r) => [r.weekStart, r]));
+  return weeks.map((weekStart) => ({ weekStart, checkin: byWeek.get(weekStart) ?? null }));
 }
